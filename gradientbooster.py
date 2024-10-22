@@ -1,10 +1,9 @@
 import pandas as pd
-import yfinance as yf
-import datetime
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
 
 # Define the ticker symbol
 tick = 'XOM'
@@ -13,10 +12,8 @@ tick = 'XOM'
 df_tick = pd.read_csv(tick + '_with_price.csv', sep=';')
 df_tick.set_index('end', inplace=True)
 
-
-df_stockprice = df_tick['StockPrice'].copy().iloc[1:]
 # Calculate percentage change and fill missing values
-df_tick = df_tick.pct_change(fill_method=None).iloc[1:]
+df_tick = df_tick.pct_change(fill_method=None).iloc[1:]  # Exclude the first NaN value
 df_tick.replace([np.inf, -np.inf], np.nan, inplace=True)  # Replace infinite values with NaN
 df_tick.fillna(df_tick.mean(), inplace=True)  # Fill NaN values with mean
 
@@ -88,45 +85,57 @@ for dataset_name, dataset in [('X_train', X_train), ('X_valid', X_valid), ('X_te
     if inf_values > 0 or nan_values > 0:
         raise ValueError(f"{dataset_name} contains infinite or NaN values.")
 
-# Initialize and train the Random Forest Regressor
-regressor = RandomForestRegressor(random_state=84, n_estimators=len(X.columns)*20)
-regressor.fit(X_train, y_train)
+# Feature Scaling (Optional for tree-based models)
+scaler_X = StandardScaler()
+X_train_scaled = scaler_X.fit_transform(X_train)
+X_valid_scaled = scaler_X.transform(X_valid)
+X_test_scaled = scaler_X.transform(X_test)
+
+# Initialize and train the Gradient Boosting Regressor
+gbr = GradientBoostingRegressor(
+    n_estimators=len(X.columns)*20,
+    learning_rate=0.1,
+    max_depth=int(np.around(len(X.columns)/6, decimals=0)),
+    subsample=0.8,
+    random_state=84
+)
+gbr.fit(X_train_scaled, y_train)
 
 # Evaluate the model on the validation set
-y_valid_pred = regressor.predict(X_valid)
+y_valid_pred = gbr.predict(X_valid_scaled)
 mse_valid = mean_squared_error(y_valid, y_valid_pred)
-print('Validation Mean Squared Error:', mse_valid)
+mae_valid = mean_absolute_error(y_valid, y_valid_pred)
+print('Validation Mean Squared Error (% Change):', mse_valid)
+print('Validation Mean Absolute Error (% Change):', mae_valid)
 
 # Evaluate the model on the test set
-y_test_pred = regressor.predict(X_test)
+y_test_pred = gbr.predict(X_test_scaled)
 mse_test = mean_squared_error(y_test, y_test_pred)
-print('Test Mean Squared Error:', mse_test)
+mae_test = mean_absolute_error(y_test, y_test_pred)
+print('Test Mean Squared Error (% Change):', mse_test)
+print('Test Mean Absolute Error (% Change):', mae_test)
 
-
-# --- Improved Visualization ---
+# --- Visualization ---
 plt.figure(figsize=(14, 7))
 
-# Plot actual stock prices
-plt.plot(y_train.index, y_train, label='Actual Stock Price - Training', marker='o', color='blue')
-plt.plot(y_valid.index, y_valid, label='Actual Stock Price - Validation', marker='o', color='green')
-plt.plot(y_test.index, y_test, label='Actual Stock Price - Test', marker='o', color='red')
+# Plot actual percentage changes
+plt.plot(y_train.index, y_train, label='Actual Stock Price % Change - Training', marker='o', color='blue')
+plt.plot(y_valid.index, y_valid, label='Actual Stock Price % Change - Validation', marker='o', color='green')
+plt.plot(y_test.index, y_test, label='Actual Stock Price % Change - Test', marker='o', color='red')
 
-# Plot predicted stock prices on validation and test sets
-plt.plot(y_valid.index, y_valid_pred, label='Predicted Stock Price - Validation', marker='x', linestyle='--', color='lime')
-plt.plot(y_test.index, y_test_pred, label='Predicted Stock Price - Test', marker='x', linestyle='--', color='orange')
+# Plot predicted percentage changes on validation and test sets
+plt.plot(y_valid.index, y_valid_pred, label='Predicted Stock Price % Change - Validation', marker='x', linestyle='--', color='lime')
+plt.plot(y_test.index, y_test_pred, label='Predicted Stock Price % Change - Test', marker='x', linestyle='--', color='orange')
 
-plt.title('Random Forest Regression - Actual vs Predicted Stock Price')
+plt.title('Gradient Boosting Regression - Actual vs Predicted Stock Price % Change')
 plt.xlabel('Date')
-plt.ylabel('Stock Price')
+plt.ylabel('Percentage Change')
 plt.legend()
 plt.grid(True)
 plt.show()
 
-
 # Print actual and predicted values for the test set
-print("Actual Stock Prices (Test Set):")
+print("Actual Stock Price % Changes (Test Set):")
 print(y_test)
-print("\nPredicted Stock Prices (Test Set):")
-print(pd.DataFrame(y_test_pred, index=y_test.index, columns=['Predicted StockPrice']))
-
-
+print("\nPredicted Stock Price % Changes (Test Set):")
+print(pd.DataFrame(y_test_pred, index=y_test.index, columns=['Predicted Stock Price % Change']))
